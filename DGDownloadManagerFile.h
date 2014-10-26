@@ -59,7 +59,7 @@
 @property (nonatomic, strong) NSURL *url;
 
 /*! @property context
- @brief This is used to allow specifying any object to internally identify this file. Use freely. */
+ @brief This is a user object, not used anywhere by the download manager. You can put here anything you like for later use. */
 @property (nonatomic, strong) NSObject *context;
 
 /*! @property cachePolicy
@@ -122,7 +122,7 @@
 /*!
  @method initWithUrl: context:
  @param url The url to download
- @param context This is used to allow specifying any object to internally identify this file. Use freely.
+ @param context This is a user object, not used anywhere by the download manager. You can put here anything you like for later use.
  */
 - (id)initWithUrl:(NSURL *)url context:(NSObject *)context;
 
