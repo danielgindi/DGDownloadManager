@@ -113,7 +113,8 @@
 /*! @property expectedContentLength
  @brief The expected content length received from the server.
  This is 0 until the file has started receiving data from the server!
- So use this only for files that were downloaded. */
+ So use this only for files that were downloaded.
+ @note This could be -1 if there was not Content-Length, i.e in a streamed connection. */
 @property (nonatomic, assign, readonly) long long expectedContentLength;
 
 /*! @property downloadedDataLength

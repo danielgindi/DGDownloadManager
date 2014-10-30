@@ -310,7 +310,9 @@
     _connection = nil;
     urlRequest = nil;
     
+    // Make it remove from us the known arrays
     [[DGDownloadManager sharedInstance] cancelFileDownload:self];
+    
     [[NSNotificationCenter defaultCenter] postNotificationName:DGDownloadManagerDownloadFailedNotification object:self];
     
     if (_delegate)
@@ -338,9 +340,11 @@
     urlRequest = nil;
     connectionFinished = YES;
     
+    // Make it remove from us the known arrays
     [[DGDownloadManager sharedInstance] cancelFileDownload:self];
     [[NSNotificationCenter defaultCenter] postNotificationName:DGDownloadManagerDownloadFinishedNotification object:self];
     if (_delegate && [_delegate respondsToSelector:@selector(downloadManagerFileFinishedDownload:)])
+    
     {
         [_delegate downloadManagerFileFinishedDownload:self];
     }
