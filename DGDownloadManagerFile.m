@@ -248,14 +248,16 @@
     
     if (!fileWriteHandle)
     {
-        NSFileManager *fileManager = [NSFileManager defaultManager];
+        NSError *fileCreationError = nil;
+        
         filePath = self.newTempFilePath;
         int tries = 3;
-        BOOL success = [fileManager createFileAtPath:filePath contents:nil attributes:nil];
+       
+        BOOL success = [[[NSData alloc] init] writeToFile:filePath options:0 error:&fileCreationError];
         while (!success && --tries)
         {
             filePath = self.newTempFilePath;
-            success = [fileManager createFileAtPath:filePath contents:nil attributes:nil];
+            success = [[[NSData alloc] init] writeToFile:filePath options:0 error:&fileCreationError];
         }
         
         if (success)
@@ -268,7 +270,7 @@
             [connection cancel];
             _connection = nil;
             filePath = nil;
-            [self connection:connection didFailWithError:nil];
+            [self connection:connection didFailWithError:fileCreationError];
         }
     }
     
