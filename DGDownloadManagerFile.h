@@ -119,7 +119,7 @@
 
 /*! @property downloadedDataLength
  @brief This is the amount of data downloaded so far. Can be used for progress. */
-@property (nonatomic, assign, readonly) long long downloadedDataLength;
+@property (nonatomic, assign, readonly) unsigned long long downloadedDataLength;
 
 /*! @property isComplete
  @brief Is this download complete? */

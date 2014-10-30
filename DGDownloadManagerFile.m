@@ -181,7 +181,7 @@
 
 - (BOOL)isComplete
 {
-    return _expectedContentLength == _downloadedDataLength && connectionFinished;
+    return (_expectedContentLength == -1 || (unsigned long long)_expectedContentLength == _downloadedDataLength) && connectionFinished;
 }
 
 - (BOOL)isDownloading
@@ -284,7 +284,7 @@
         /*! @discussion In rare cases, for example in the case of an HTTP load where the content type of the load data is multipart/x-mixed-replace, the delegate will receive more than one connection:didReceiveResponse: message. In the event this occurs, delegates should discard all data previously delivered by connection:didReceiveData:, and should be prepared to handle the, potentially different, MIME type reported by the newly reported URL response. */
         
         [fileWriteHandle truncateFileAtOffset:0];
-        _downloadedDataLength = 0L;
+        _downloadedDataLength = 0ULL;
     }
     
     if (_delegate && [_delegate respondsToSelector:@selector(downloadManagerFileHeadersReceived:)])
@@ -297,7 +297,7 @@
 {
     [fileWriteHandle writeData:data];
     [fileWriteHandle synchronizeFile]; // Prevent memory presure by always flushing to disk
-    _downloadedDataLength += data.length;
+    _downloadedDataLength += (unsigned long long)data.length;
     
     if (_progressDelegate)
     {
