@@ -342,11 +342,31 @@
     
     // Make it remove from us the known arrays
     [[DGDownloadManager sharedInstance] cancelFileDownload:self];
-    [[NSNotificationCenter defaultCenter] postNotificationName:DGDownloadManagerDownloadFinishedNotification object:self];
-    if (_delegate && [_delegate respondsToSelector:@selector(downloadManagerFileFinishedDownload:)])
     
+    if ([[[NSFileManager defaultManager] attributesOfItemAtPath:filePath error:nil] fileSize] < _downloadedDataLength)
     {
-        [_delegate downloadManagerFileFinishedDownload:self];
+        NSError *error = [NSError errorWithDomain:@"file.io" code:0 userInfo:@{@"description": @"seems like we ran out of space and could not write to disk"}];
+        [[NSNotificationCenter defaultCenter] postNotificationName:DGDownloadManagerDownloadFailedNotification object:self];
+        
+        if (_delegate)
+        {
+            if ([_delegate respondsToSelector:@selector(downloadManagerFileFailedDownload:error:)])
+            {
+                [_delegate downloadManagerFileFailedDownload:self error:error];
+            }
+            else if ([_delegate respondsToSelector:@selector(downloadManagerFileFailedDownload:)])
+            {
+                [_delegate downloadManagerFileFailedDownload:self];
+            }
+        }
+    }
+    else
+    {
+        [[NSNotificationCenter defaultCenter] postNotificationName:DGDownloadManagerDownloadFinishedNotification object:self];
+        if (_delegate && [_delegate respondsToSelector:@selector(downloadManagerFileFinishedDownload:)])
+        {
+            [_delegate downloadManagerFileFinishedDownload:self];
+        }
     }
     
     if (bgTaskId)
