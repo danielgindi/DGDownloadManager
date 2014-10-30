@@ -310,9 +310,17 @@
     
     [[DGDownloadManager sharedInstance] cancelFileDownload:self];
     [[NSNotificationCenter defaultCenter] postNotificationName:DGDownloadManagerDownloadFailedNotification object:self];
-    if (_delegate && [_delegate respondsToSelector:@selector(downloadManagerFileFailedDownload:)])
+    
+    if (_delegate)
     {
-        [_delegate downloadManagerFileFailedDownload:self];
+        if ([_delegate respondsToSelector:@selector(downloadManagerFileFailedDownload:error:)])
+        {
+            [_delegate downloadManagerFileFailedDownload:self error:error];
+        }
+        else if ([_delegate respondsToSelector:@selector(downloadManagerFileFailedDownload:)])
+        {
+            [_delegate downloadManagerFileFailedDownload:self];
+        }
     }
     
     if (bgTaskId)
