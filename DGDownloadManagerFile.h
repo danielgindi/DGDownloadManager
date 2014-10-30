@@ -37,10 +37,27 @@
 @protocol DGDownloadManagerFileDelegate <NSObject>
 
 @optional
+
+/** @brief Sent when the file is starting download, before the connection has been established */
 - (void)downloadManagerFileStartedDownload:(DGDownloadManagerFile *)file;
+
+/** @brief Sent if the download was cancelled while downloading */
 - (void)downloadManagerFileCancelledDownload:(DGDownloadManagerFile *)file;
+
+/** @brief Sent right after the headers have been received, so you know you have the Content-Length etc. */
 - (void)downloadManagerFileHeadersReceived:(DGDownloadManagerFile *)file;
+
+/** @brief Sent when the download has failed for some reason
+ @note This will be removed soon
+ @deprecated */
 - (void)downloadManagerFileFailedDownload:(DGDownloadManagerFile *)file;
+
+/** @brief Sent when the download has failed for some reason
+ @param error The error that has occurred
+ @note If "downloadManagerFileFailedDownload:error:", then "downloadManagerFileFailedDownload:" message will not be sent. */
+- (void)downloadManagerFileFailedDownload:(DGDownloadManagerFile *)file error:(NSError *)error;
+
+/** Sent when the download has finished successfully */
 - (void)downloadManagerFileFinishedDownload:(DGDownloadManagerFile *)file;
 
 @end
@@ -48,6 +65,8 @@
 @protocol DGDownloadManagerFileProgressDelegate <NSObject>
 
 @required
+/** @brief Will be sent whenever new data has arrived. This could be called many times, so you may want to dispatch the handling of this to another thread, or "throttle" the handling of progress to only handle every X ms.
+ @note The better way, in my opinion, is to just leave progressDelegate as nil, and query the file for progress periodically */
 - (void)downloadManagerFileProgressChanged:(DGDownloadManagerFile *)file;
 
 @end
