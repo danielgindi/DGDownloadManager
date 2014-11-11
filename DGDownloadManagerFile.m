@@ -201,7 +201,7 @@
 
 - (void)startDownloadingNow
 {
-    if (_connection || !_url) return;
+    if (_connection || (!_url && !_urlRequest)) return;
     
     _currentUrlRequest = _urlRequest;
     if (!_currentUrlRequest)
@@ -298,7 +298,7 @@
 
 - (void)resumeDownloadNow
 {
-    if (_connection) return;
+    if (_connection || (!_url && !_urlRequest)) return;
     
     NSError *fileError = nil;
     [self prepareFileForDownloadWithResume:NO error:&fileError];
