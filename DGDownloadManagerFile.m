@@ -39,12 +39,21 @@
 @implementation DGDownloadManagerFile
 {
     NSURLConnection *_connection;
-    NSString *filePath;
     NSFileHandle *fileWriteHandle;
-    NSURLRequest *urlRequest;
     BOOL resumeAllowed;
     BOOL connectionFinished;
     UIBackgroundTaskIdentifier bgTaskId;
+    
+    NSString *_downloadFilePath;
+    BOOL _shouldDeleteOnDealloc;
+    NSURLRequest *_currentUrlRequest;
+}
+
+- (void)initialize_DGDownloadManagerFile
+{
+    _requestTimeout = 60.0;
+    _cachePolicy = NSURLCacheStorageAllowed;
+    bgTaskId = UIBackgroundTaskInvalid;
 }
 
 - (id)initWithUrl:(NSURL *)url
@@ -52,9 +61,7 @@
     self = [super init];
     if (self)
     {
-        _requestTimeout = 60.0;
-        _cachePolicy = NSURLCacheStorageAllowed;
-        bgTaskId = UIBackgroundTaskInvalid;
+        [self initialize_DGDownloadManagerFile];
         _url = url;
     }
     return self;
@@ -65,11 +72,32 @@
     self = [super init];
     if (self)
     {
-        _requestTimeout = 60.0;
-        _cachePolicy = NSURLCacheStorageAllowed;
-        bgTaskId = UIBackgroundTaskInvalid;
+        [self initialize_DGDownloadManagerFile];
         _url = url;
         _context = context;
+    }
+    return self;
+}
+
+- (id)initWithUrlRequest:(NSURLRequest *)urlRequest context:(NSObject *)context
+{
+    self = [super init];
+    if (self)
+    {
+        [self initialize_DGDownloadManagerFile];
+        _urlRequest = urlRequest;
+        _context = context;
+    }
+    return self;
+}
+
+- (id)initWithUrlRequest:(NSURLRequest *)urlRequest
+{
+    self = [super init];
+    if (self)
+    {
+        [self initialize_DGDownloadManagerFile];
+        _urlRequest = urlRequest;
     }
     return self;
 }
@@ -79,10 +107,10 @@
     [self cancelDownloading];
     [fileWriteHandle closeFile];
     fileWriteHandle = nil;
-    if (filePath)
+    
+    if (_downloadFilePath && _shouldDeleteOnDealloc)
     {
-        [[NSFileManager defaultManager] removeItemAtPath:filePath error:nil];
-        filePath = nil;
+        [[NSFileManager defaultManager] removeItemAtPath:_downloadFilePath error:nil];
     }
 }
 
@@ -99,19 +127,135 @@
     return path;
 }
 
+- (void)prepareFileForDownloadWithResume:(BOOL)isResume error:(NSError **)outError
+{
+    if (isResume && _downloadFilePath) return;
+    
+    if (!_downloadFilePath)
+    {
+        _downloadFilePath = self.downloadDirectlyToPath;
+        
+        if (_downloadFilePath)
+        {
+            _shouldDeleteOnDealloc = NO;
+            
+            if (!isResume || ![[NSFileManager defaultManager] fileExistsAtPath:_downloadFilePath isDirectory:NO])
+            {
+                NSError *fileCreationError = nil;
+                [[[NSData alloc] init] writeToFile:_downloadFilePath options:0 error:&fileCreationError];
+                
+                if (fileCreationError)
+                {
+                    _downloadFilePath = nil;
+                    if (outError)
+                    {
+                        *outError = fileCreationError;
+                    }
+                }
+            }
+        }
+        else
+        {
+            _shouldDeleteOnDealloc = YES;
+            
+            NSError *fileCreationError = nil;
+            
+            _downloadFilePath = [self newTempFilePath];
+            int tries = 3;
+            
+            [[[NSData alloc] init] writeToFile:_downloadFilePath options:0 error:&fileCreationError];
+            while (fileCreationError && --tries)
+            {
+                _downloadFilePath = [self newTempFilePath];
+                
+                fileCreationError = nil;
+                [[[NSData alloc] init] writeToFile:_downloadFilePath options:0 error:&fileCreationError];
+            }
+            
+            if (fileCreationError)
+            {
+                _downloadFilePath = nil;
+                if (outError)
+                {
+                    *outError = fileCreationError;
+                }
+            }
+        }
+    }
+    
+    // Now when we have a file (and truncated it if we needed to) open a handle for writing to it.
+    // On UNIX the file can be moved or even deleted while the handle is still open - which is a nice feature because we can start reading from the temp file while downloading, and when we move that file to somewhere else we don't have to stop and resume reading.
+    if (_downloadFilePath)
+    {
+        fileWriteHandle = [NSFileHandle fileHandleForWritingAtPath:_downloadFilePath];
+        if (!fileWriteHandle)
+        {
+            _downloadFilePath = nil;
+            if (outError)
+            {
+                *outError = [NSError errorWithDomain:@"file.io" code:0 userInfo:@{NSLocalizedDescriptionKey: @"NSFileHandle fileHandleForWritingAtPath: failed and returned nil."}];
+            }
+        }
+    }
+}
+
 - (void)startDownloadingNow
 {
     if (_connection || !_url) return;
-    urlRequest = [[NSURLRequest alloc] initWithURL:_url cachePolicy:_cachePolicy timeoutInterval:_requestTimeout];
-    _connection = [[NSURLConnection alloc] initWithRequest:urlRequest delegate:self];
+    
+    _currentUrlRequest = _urlRequest;
+    if (!_currentUrlRequest)
+    {
+        _currentUrlRequest = [[NSURLRequest alloc] initWithURL:_url cachePolicy:_cachePolicy timeoutInterval:_requestTimeout];
+    }
+    
+    NSError *fileError = nil;
+    [self prepareFileForDownloadWithResume:NO error:&fileError];
+    
+    if (fileError)
+    {
+        [self connection:nil didFailWithError:fileError];
+        return;
+    }
+    
+    _connection = [[NSURLConnection alloc] initWithRequest:_currentUrlRequest delegate:self];
     connectionFinished = NO;
     [_connection start];
     
-    [[DGDownloadManager sharedInstance] downloadFile:self];
+    if (!_isStandalone)
+    {
+        [[DGDownloadManager sharedInstance] downloadFile:self];
+    }
+    
     [[NSNotificationCenter defaultCenter] postNotificationName:DGDownloadManagerDownloadStartedNotification object:self];
     if (_delegate && [_delegate respondsToSelector:@selector(downloadManagerFileStartedDownload:)])
     {
         [_delegate downloadManagerFileStartedDownload:self];
+    }
+}
+
+- (void)pauseDownloading
+{
+    if (!_connection) return;
+    [_connection cancel];
+    _connection = nil;
+    _currentUrlRequest = nil;
+    
+    if (!_isStandalone)
+    {
+        [[DGDownloadManager sharedInstance] cancelFileDownload:self];
+    }
+    
+    [[NSNotificationCenter defaultCenter] postNotificationName:DGDownloadManagerDownloadPausedNotification object:self];
+    if (_delegate && [_delegate respondsToSelector:@selector(downloadManagerFilePausedDownload:)])
+    {
+        [_delegate downloadManagerFilePausedDownload:self];
+    }
+    
+    if (bgTaskId)
+    {
+        [UIApplication.sharedApplication endBackgroundTask:bgTaskId];
+        bgTaskId = UIBackgroundTaskInvalid;
     }
 }
 
@@ -120,9 +264,25 @@
     if (!_connection) return;
     [_connection cancel];
     _connection = nil;
-    urlRequest = nil;
+    _currentUrlRequest = nil;
     
-    [[DGDownloadManager sharedInstance] cancelFileDownload:self];
+    [fileWriteHandle closeFile];
+    fileWriteHandle = nil;
+    
+    if (_downloadFilePath && _shouldDeleteOnDealloc)
+    {
+        [[NSFileManager defaultManager] removeItemAtPath:_downloadFilePath error:nil];
+        _downloadFilePath = nil;
+        _shouldDeleteOnDealloc = NO;
+    }
+    
+    _downloadedDataLength = 0LL;
+    
+    if (!_isStandalone)
+    {
+        [[DGDownloadManager sharedInstance] cancelFileDownload:self];
+    }
+    
     [[NSNotificationCenter defaultCenter] postNotificationName:DGDownloadManagerDownloadCancelledNotification object:self];
     if (_delegate && [_delegate respondsToSelector:@selector(downloadManagerFileCancelledDownload:)])
     {
@@ -140,26 +300,56 @@
 {
     if (_connection) return;
     
-    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:_url
-                                                           cachePolicy:_cachePolicy
-                                                       timeoutInterval:_requestTimeout];
+    NSError *fileError = nil;
+    [self prepareFileForDownloadWithResume:NO error:&fileError];
+    
+    if (fileError)
+    {
+        [self connection:nil didFailWithError:fileError];
+        return;
+    }
+    
+    NSMutableURLRequest *request;
+    
+    if (_urlRequest)
+    {
+        request = [_urlRequest mutableCopy];
+    }
+    else
+    {
+        request = [NSMutableURLRequest requestWithURL:_url cachePolicy:_cachePolicy timeoutInterval:_requestTimeout];
+    }
+    
+    unsigned long long currentFileSize = [[[NSFileManager defaultManager] attributesOfItemAtPath:_downloadFilePath error:nil] fileSize];
+    _downloadedDataLength = currentFileSize;
     
     if (resumeAllowed)
     {
-        [request addValue:[NSString stringWithFormat:@"bytes=%lld-", _downloadedDataLength] forHTTPHeaderField:@"Range"];
+        if ([request valueForHTTPHeaderField:@"Range"] == nil)
+        {
+            [request addValue:[NSString stringWithFormat:@"bytes=%lld-", _downloadedDataLength] forHTTPHeaderField:@"Range"];
+        }
+    }
+    else
+    {
+        [request setValue:nil forHTTPHeaderField:@"Range"];
     }
     
-    urlRequest = [request copy];
+    _currentUrlRequest = [request copy];
     
     bgTaskId = [UIApplication.sharedApplication beginBackgroundTaskWithExpirationHandler:^{
         bgTaskId = UIBackgroundTaskInvalid;
         [self cancelDownloading];
     }];
-    _connection = [[NSURLConnection alloc] initWithRequest:urlRequest delegate:self];
+    _connection = [[NSURLConnection alloc] initWithRequest:_currentUrlRequest delegate:self];
     connectionFinished = NO;
     [_connection start];
     
-    [[DGDownloadManager sharedInstance] resumeFileDownload:self];
+    if (!_isStandalone)
+    {
+        [[DGDownloadManager sharedInstance] resumeFileDownload:self];
+    }
+    
     [[NSNotificationCenter defaultCenter] postNotificationName:DGDownloadManagerDownloadStartedNotification object:self];
     if (_delegate && [_delegate respondsToSelector:@selector(downloadManagerFileStartedDownload:)])
     {
@@ -177,6 +367,23 @@
     [[DGDownloadManager sharedInstance] resumeFileDownload:self];
 }
 
+- (void)postFailedMessageWithError:(NSError *)error
+{
+    [[NSNotificationCenter defaultCenter] postNotificationName:DGDownloadManagerDownloadFailedNotification object:self userInfo:@{@"error": error}];
+    
+    if (_delegate)
+    {
+        if ([_delegate respondsToSelector:@selector(downloadManagerFileFailedDownload:error:)])
+        {
+            [_delegate downloadManagerFileFailedDownload:self error:error];
+        }
+        else if ([_delegate respondsToSelector:@selector(downloadManagerFileFailedDownload:)])
+        {
+            [_delegate downloadManagerFileFailedDownload:self];
+        }
+    }
+}
+
 #pragma mark - Accessors
 
 - (BOOL)isComplete
@@ -191,7 +398,7 @@
 
 - (NSString *)downloadedFilePath
 {
-    return filePath;
+    return _downloadFilePath;
 }
 
 #pragma mark - NSURLConnectionDelegate, NSURLConnectionDataDelegate
@@ -201,7 +408,7 @@
     _suggestedFilename = response.suggestedFilename;
     if (response)
     {
-        NSMutableURLRequest *goodRequest = [urlRequest mutableCopy];
+        NSMutableURLRequest *goodRequest = [_currentUrlRequest mutableCopy];
         goodRequest.URL = request.URL;
         return goodRequest;
     }
@@ -219,7 +426,7 @@
         if (statusCode >= 400)
         {
             [connection cancel];
-            [self connection:connection didFailWithError:[NSError errorWithDomain:response.URL.absoluteString code:statusCode userInfo:@{}]];
+            [self connection:connection didFailWithError:[NSError errorWithDomain:response.URL.absoluteString code:statusCode userInfo:@{ NSLocalizedFailureReasonErrorKey: @(statusCode)}]];
             return;
         }
     }
@@ -235,7 +442,7 @@
     long long start = 0;
     
     NSString *contentRange = [headers valueForKey:@"Content-Range"];
-    if (contentRange && _downloadedDataLength > 0)
+    if (contentRange && _downloadedDataLength > 0ULL)
     {
         NSScanner *contentRangeScanner = [NSScanner scannerWithString:contentRange];
         [contentRangeScanner scanString:@"bytes " intoString:nil];
@@ -244,42 +451,12 @@
         _expectedContentLength += start;
     }
     
-    BOOL writerAlreadyExists = fileWriteHandle != nil;
-    
-    if (!fileWriteHandle)
-    {
-        NSError *fileCreationError = nil;
-        
-        filePath = self.newTempFilePath;
-        int tries = 3;
-       
-        BOOL success = [[[NSData alloc] init] writeToFile:filePath options:0 error:&fileCreationError];
-        while (!success && --tries)
-        {
-            filePath = self.newTempFilePath;
-            success = [[[NSData alloc] init] writeToFile:filePath options:0 error:&fileCreationError];
-        }
-        
-        if (success)
-        {
-            fileWriteHandle = [NSFileHandle fileHandleForWritingAtPath:filePath];
-        }
-        
-        if (!success || !fileWriteHandle)
-        {
-            [connection cancel];
-            _connection = nil;
-            filePath = nil;
-            [self connection:connection didFailWithError:fileCreationError];
-        }
-    }
-    
     if (start > 0L)
     {
         // This is a partial, from resuming the download. Seek to the start position.
         [fileWriteHandle seekToFileOffset:start];
     }
-    else if (writerAlreadyExists)
+    else
     {
         /*! @discussion In rare cases, for example in the case of an HTTP load where the content type of the load data is multipart/x-mixed-replace, the delegate will receive more than one connection:didReceiveResponse: message. In the event this occurs, delegates should discard all data previously delivered by connection:didReceiveData:, and should be prepared to handle the, potentially different, MIME type reported by the newly reported URL response. */
         
@@ -295,7 +472,29 @@
 
 - (void)connection:(NSURLConnection *)connection didReceiveData:(NSData *)data
 {
-    [fileWriteHandle writeData:data];
+    @try
+    {
+        [fileWriteHandle writeData:data];
+    }
+    @catch (NSException *exception)
+    {
+        [connection cancel];
+        
+        NSMutableDictionary *userInfo = [exception.userInfo mutableCopy];
+        userInfo[NSLocalizedFailureReasonErrorKey] = exception.reason;
+        
+        NSError *error = [NSError errorWithDomain:@"file.io"
+                                             code:0
+                                         userInfo:userInfo];
+        [self connection:connection didFailWithError:error];
+        
+        return;
+    }
+    @finally
+    {
+        
+    }
+    
     [fileWriteHandle synchronizeFile]; // Prevent memory presure by always flushing to disk
     _downloadedDataLength += (unsigned long long)data.length;
     
@@ -308,24 +507,15 @@
 - (void)connection:(NSURLConnection *)connection didFailWithError:(NSError *)error
 {
     _connection = nil;
-    urlRequest = nil;
+    _currentUrlRequest = nil;
     
-    // Make it remove from us the known arrays
-    [[DGDownloadManager sharedInstance] cancelFileDownload:self];
-    
-    [[NSNotificationCenter defaultCenter] postNotificationName:DGDownloadManagerDownloadFailedNotification object:self];
-    
-    if (_delegate)
+    if (!_isStandalone)
     {
-        if ([_delegate respondsToSelector:@selector(downloadManagerFileFailedDownload:error:)])
-        {
-            [_delegate downloadManagerFileFailedDownload:self error:error];
-        }
-        else if ([_delegate respondsToSelector:@selector(downloadManagerFileFailedDownload:)])
-        {
-            [_delegate downloadManagerFileFailedDownload:self];
-        }
+        // Make it remove from us the known arrays
+        [[DGDownloadManager sharedInstance] cancelFileDownload:self];
     }
+    
+    [self postFailedMessageWithError:error];
     
     if (bgTaskId)
     {
@@ -337,28 +527,20 @@
 - (void)connectionDidFinishLoading:(NSURLConnection *)connection
 {
     _connection = nil;
-    urlRequest = nil;
+    _currentUrlRequest = nil;
     connectionFinished = YES;
     
-    // Make it remove from us the known arrays
-    [[DGDownloadManager sharedInstance] cancelFileDownload:self];
-    
-    if ([[[NSFileManager defaultManager] attributesOfItemAtPath:filePath error:nil] fileSize] < _downloadedDataLength)
+    if (!_isStandalone)
     {
-        NSError *error = [NSError errorWithDomain:@"file.io" code:0 userInfo:@{@"description": @"seems like we ran out of space and could not write to disk"}];
-        [[NSNotificationCenter defaultCenter] postNotificationName:DGDownloadManagerDownloadFailedNotification object:self];
+        // Make it remove from us the known arrays
+        [[DGDownloadManager sharedInstance] cancelFileDownload:self];
+    }
+    
+    if ([[[NSFileManager defaultManager] attributesOfItemAtPath:_downloadFilePath error:nil] fileSize] < _downloadedDataLength)
+    {
+        NSError *error = [NSError errorWithDomain:@"file.io" code:0 userInfo:@{NSLocalizedDescriptionKey: @"seems like we ran out of space and could not write to disk"}];
         
-        if (_delegate)
-        {
-            if ([_delegate respondsToSelector:@selector(downloadManagerFileFailedDownload:error:)])
-            {
-                [_delegate downloadManagerFileFailedDownload:self error:error];
-            }
-            else if ([_delegate respondsToSelector:@selector(downloadManagerFileFailedDownload:)])
-            {
-                [_delegate downloadManagerFileFailedDownload:self];
-            }
-        }
+        [self postFailedMessageWithError:error];
     }
     else
     {

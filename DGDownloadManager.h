@@ -36,6 +36,7 @@
 #define DGDownloadManagerDownloadStartedNotification @"DGDownloadManagerDownloadStartedNotification"
 #define DGDownloadManagerDownloadFinishedNotification @"DGDownloadManagerDownloadFinishedNotification"
 #define DGDownloadManagerDownloadCancelledNotification @"DGDownloadManagerDownloadCancelledNotification"
+#define DGDownloadManagerDownloadPausedNotification @"DGDownloadManagerDownloadPausedNotification"
 #define DGDownloadManagerDownloadFailedNotification @"DGDownloadManagerDownloadFailedNotification"
 
 @interface DGDownloadManager : NSObject

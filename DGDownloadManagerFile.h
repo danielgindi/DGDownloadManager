@@ -41,6 +41,9 @@
 /** @brief Sent when the file is starting download, before the connection has been established */
 - (void)downloadManagerFileStartedDownload:(DGDownloadManagerFile *)file;
 
+/** @brief Sent if the download was paused while downloading */
+- (void)downloadManagerFilePausedDownload:(DGDownloadManagerFile *)file;
+
 /** @brief Sent if the download was cancelled while downloading */
 - (void)downloadManagerFileCancelledDownload:(DGDownloadManagerFile *)file;
 
@@ -74,12 +77,22 @@
 @interface DGDownloadManagerFile : NSObject
 
 /*! @property url
-    @brief The url to download */
+ @brief The url to download. You can specify either urlRequest or url. */
 @property (nonatomic, strong) NSURL *url;
+
+/*! @property urlRequest
+ @brief A url request to issue for download. You can specify either urlRequest or url. */
+@property (nonatomic, strong) NSURLRequest *urlRequest;
 
 /*! @property context
  @brief This is a user object, not used anywhere by the download manager. You can put here anything you like for later use. */
 @property (nonatomic, strong) NSObject *context;
+
+/*! @property downloadDirectlyToPath
+ @brief If this is set, the download manager will download directly to this file path. 
+ When starting download without resuming - this file will be overwritten. 
+ When specifying a custom path, the file will NOT be deleted automatically. */
+@property (nonatomic, strong) NSString *downloadDirectlyToPath;
 
 /*! @property cachePolicy
  @brief The cache policy to use when downloading with NSURLConnection
@@ -90,6 +103,11 @@
  @brief The timeout to use when downloading with NSURLConnection
  Default is 60.0 */
 @property (nonatomic, assign) NSTimeInterval requestTimeout;
+
+/*! @property isStandalone
+ @brief If isStandalone is YES, then the file will never be on a DGDownloadManager queue, and thus not subject to the connection limit and not queued or cancelled by the manager.
+ Default is NO */
+@property (nonatomic, assign) BOOL isStandalone;
 
 /*! @property delegate
  @brief A delegate to receive messages */
@@ -147,6 +165,19 @@
 - (id)initWithUrl:(NSURL *)url context:(NSObject *)context;
 
 /*!
+ @method initWithUrlRequest:
+ @param urlRequest The url request to download
+ */
+- (id)initWithUrlRequest:(NSURLRequest *)urlRequest;
+
+/*!
+ @method initWithUrlRequest: context:
+ @param urlRequest The url request to download
+ @param context This is a user object, not used anywhere by the download manager. You can put here anything you like for later use.
+ */
+- (id)initWithUrlRequest:(NSURLRequest *)urlRequest context:(NSObject *)context;
+
+/*!
  @method addToDownloadQueue
  @brief Add this file to the download queue in the download manager. If the concurrent limit is not reached, then the download will start immediately.
  */
@@ -157,6 +188,12 @@
  @brief Starts the download immediately, potentially exceeding the download manager concurrent limit.
  */
 - (void)startDownloadingNow;
+
+/*!
+ @method pauseDownloading
+ @brief Pauses the download or removes from the queue.
+ */
+- (void)pauseDownloading;
 
 /*!
  @method cancelDownloading
