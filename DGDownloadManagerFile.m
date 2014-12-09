@@ -127,9 +127,11 @@
     return path;
 }
 
-- (void)prepareFileForDownloadWithResume:(BOOL)isResume error:(NSError **)outError
+- (BOOL)prepareFileForDownloadWithResume:(BOOL)isResume error:(NSError **)outError
 {
-    if (isResume && _downloadFilePath) return;
+    BOOL shouldReturnError = NO;
+    
+    if (isResume && _downloadFilePath) return NO;
     
     if (!_downloadFilePath || !isResume)
     {
@@ -151,6 +153,7 @@
                     {
                         *outError = fileCreationError;
                     }
+                    shouldReturnError = YES;
                 }
             }
         }
@@ -179,6 +182,7 @@
                 {
                     *outError = fileCreationError;
                 }
+                shouldReturnError = YES;
             }
         }
     }
@@ -195,8 +199,11 @@
             {
                 *outError = [NSError errorWithDomain:@"file.io" code:0 userInfo:@{NSLocalizedDescriptionKey: @"NSFileHandle fileHandleForWritingAtPath: failed and returned nil."}];
             }
+            shouldReturnError = YES;
         }
     }
+    
+    return shouldReturnError;
 }
 
 - (void)startDownloadingNow
