@@ -52,7 +52,7 @@
 - (void)initialize_DGDownloadManagerFile
 {
     _requestTimeout = 60.0;
-    _cachePolicy = NSURLCacheStorageAllowed;
+    _cachePolicy = NSURLRequestUseProtocolCachePolicy;
     bgTaskId = UIBackgroundTaskInvalid;
 }
 
