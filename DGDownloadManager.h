@@ -30,7 +30,7 @@
 //  SOFTWARE. 
 //  
 
-#import <Foundation/Foundation.h>
+#import <UIKit/UIKit.h>
 #import "DGDownloadManagerFile.h"
 
 #define DGDownloadManagerDownloadStartedNotification @"DGDownloadManagerDownloadStartedNotification"
