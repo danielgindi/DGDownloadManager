@@ -141,7 +141,8 @@
         {
             _shouldDeleteOnDealloc = NO;
             
-            if (!isResume || ![[NSFileManager defaultManager] fileExistsAtPath:_downloadFilePath isDirectory:NO])
+            BOOL isDirectory = NO;
+            if (!isResume || ![[NSFileManager defaultManager] fileExistsAtPath:_downloadFilePath isDirectory:&isDirectory] || isDirectory)
             {
                 NSError *fileCreationError = nil;
                 [[[NSData alloc] init] writeToFile:_downloadFilePath options:0 error:&fileCreationError];
