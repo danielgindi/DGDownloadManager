@@ -198,7 +198,7 @@
             _downloadFilePath = nil;
             if (outError)
             {
-                *outError = [NSError errorWithDomain:@"file.io" code:0 userInfo:@{NSLocalizedDescriptionKey: @"NSFileHandle fileHandleForWritingAtPath: failed and returned nil."}];
+                *outError = [NSError errorWithDomain:NSCocoaErrorDomain code:NSFileWriteUnknownError userInfo:@{NSLocalizedDescriptionKey: @"NSFileHandle fileHandleForWritingAtPath: failed and returned nil."}];
             }
             shouldReturnError = YES;
         }
@@ -222,7 +222,7 @@
     
     if (fileError)
     {
-        [self connection:nil didFailWithError:fileError];
+        [self cleanupOnFailureWithError:fileError];
         return;
     }
     
@@ -313,7 +313,7 @@
     
     if (fileError)
     {
-        [self connection:nil didFailWithError:fileError];
+        [self cleanupOnFailureWithError:fileError];
         return;
     }
     
@@ -391,6 +391,27 @@
         }
     }
 }
+
+- (void)cleanupOnFailureWithError:(NSError *)error
+{
+    _connection = nil;
+    _currentUrlRequest = nil;
+    
+    if (!_isStandalone)
+    {
+        // Make it remove from us the known arrays
+        [[DGDownloadManager sharedInstance] cancelFileDownload:self];
+    }
+    
+    [self postFailedMessageWithError:error];
+    
+    if (bgTaskId)
+    {
+        [UIApplication.sharedApplication endBackgroundTask:bgTaskId];
+        bgTaskId = UIBackgroundTaskInvalid;
+    }
+}
+
 
 #pragma mark - Accessors
 
@@ -491,8 +512,8 @@
         NSMutableDictionary *userInfo = [exception.userInfo mutableCopy];
         userInfo[NSLocalizedFailureReasonErrorKey] = exception.reason;
         
-        NSError *error = [NSError errorWithDomain:@"file.io"
-                                             code:0
+        NSError *error = [NSError errorWithDomain:NSCocoaErrorDomain
+                                             code:NSFileWriteUnknownError
                                          userInfo:userInfo];
         [self connection:connection didFailWithError:error];
         
@@ -514,22 +535,7 @@
 
 - (void)connection:(NSURLConnection *)connection didFailWithError:(NSError *)error
 {
-    _connection = nil;
-    _currentUrlRequest = nil;
-    
-    if (!_isStandalone)
-    {
-        // Make it remove from us the known arrays
-        [[DGDownloadManager sharedInstance] cancelFileDownload:self];
-    }
-    
-    [self postFailedMessageWithError:error];
-    
-    if (bgTaskId)
-    {
-        [UIApplication.sharedApplication endBackgroundTask:bgTaskId];
-        bgTaskId = UIBackgroundTaskInvalid;
-    }
+    [self cleanupOnFailureWithError:error];
 }
 
 - (void)connectionDidFinishLoading:(NSURLConnection *)connection
@@ -546,7 +552,7 @@
     
     if ([[[NSFileManager defaultManager] attributesOfItemAtPath:_downloadFilePath error:nil] fileSize] < _downloadedDataLength)
     {
-        NSError *error = [NSError errorWithDomain:@"file.io" code:0 userInfo:@{NSLocalizedDescriptionKey: @"seems like we ran out of space and could not write to disk"}];
+        NSError *error = [NSError errorWithDomain:NSCocoaErrorDomain code:NSFileWriteUnknownError userInfo:@{NSLocalizedDescriptionKey: @"seems like we ran out of space and could not write to disk"}];
         
         [self postFailedMessageWithError:error];
     }
